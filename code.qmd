@@ -215,6 +215,88 @@ dim2 %>% kable(caption = "Selected traits in dimension 2")
 ```
 
 
+# Traits discrimination
+
+```{r}
+varsel <- bind_rows(dim1, dim2) %>% 
+  select(1) %>% 
+  unique() %>% 
+  deframe()
+
+fbx <- fb %>% 
+  select(1:3, {{varsel}})
+```
+
+
+## PCA
+
+
+```{r}
+pcax <- fbx %>% 
+  column_to_rownames(var = "race") %>% 
+  PCA(scale.unit = T
+      , quali.sup = 1:4
+      , graph = F) 
+
+var <- plot.PCA(pcax, choix = c("var"), cex = 0.5)
+
+var
+
+ind <- plot.PCA(pcax, choix = c("ind"), cex = 0.7
+                , label = "ind"
+                , invisible = "quali"
+                , habillage = 1
+                )
+
+ind
+
+# summary(pca, nbelements = Inf, nb.dec = 2)
+# pcainfo <- factoextra::get_pca_var(pca)
+# pcainfo$cor
+# pcainfo$contrib
+```
+
+# Analisis de Cluster
+
+```{r}
+clsx <- HCPC(pcax, graph = F)
+
+pclustx <- \() {
+  
+  plot.HCPC(clsx, choice = "map", nb.clust=-1, draw.tree = F)
+  
+}
+  
+plot <- list(pclustx) %>% 
+  plot_grid(plotlist = ., ncol = 1)
+
+ggsave2(plot = plot, "submission/clusterx.jpg"
+        , height = 20, width = 20, units = "cm")
+
+knitr::include_graphics("submission/clusterx.jpg")
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ```{r}
 knitr::knit_exit()
