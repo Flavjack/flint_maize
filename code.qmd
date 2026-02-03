@@ -7,7 +7,7 @@ format:
     toc-location: left
     number-sections: true
     self-contained: true
-    output-file: "ESM_2"
+    output-file: "ESM"
 editor_options: 
   chunk_output_type: console
 execute: 
