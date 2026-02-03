@@ -1,6 +1,6 @@
 ---
-title: "Multivariate analysis of Peruvian maize races"
-author: "Carlos I. Arbizu; Flavio Lozano-Isla; Pedro Rodriguez-Grados; Ricardo Sevilla; Alexander Grobman; Rodomiro Ortiz"
+title: "Morphological characterization of Peruvian highland maize races using multivariate analysis"
+author: "Flavio Lozano-Isla; Pedro M. Rodriguez-Grados; Ricardo Sevilla; Alexander Grobman; Rodomiro Orti and Carlos I. Arbizu"
 format:
   html:
     toc: true
