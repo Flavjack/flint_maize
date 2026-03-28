@@ -25,16 +25,13 @@ execute:
 #| label:  setup
 
 library(factoextra)
+library(corrplot)
 source('https://inkaverse.com/setup.r')
 ```
 
 # Research Objective
 
-1. Seleccionar las variables morfológicas discriminantes que permitan diferenciar con mayor precisión las razas de maíz del Perú, a partir de su variabilidad fenotípica.
-
-2. Agrupar las razas de maíz mediante análisis multivariado, utilizando coeficientes de distancia morfológica, con el fin de identificar conjuntos o clústeres con alta similitud intra-grupo y diferenciación inter-grupo.
-
-3. Comparar los grupos obtenidos con la clasificación racial propuesta por Grobman, Salhuana y Sevilla (1961), para evaluar la correspondencia, divergencia o redefinición de las razas en la estructura de clasificación del maíz peruano.
+> https://docs.google.com/spreadsheets/d/1Us3b4buA-tXxltZd1kd970NttFA4k_apQvLdQ8BXXTw/edit?gid=543463494#gid=543463494
 
 # Data import
 
@@ -49,7 +46,7 @@ gs <- url %>%
   as_sheets_id()
 
 rawdata <- gs %>% 
-  range_read("dt")
+  range_read("STable1")
 rawdata %>% dim()
 rawdata %>% str()
 
@@ -60,6 +57,9 @@ fb <- rawdata %>%
   mutate(across(1:plant_pubescence, ~ as.character(.))) %>% 
   mutate(across(1:plant_pubescence, ~ as.factor(.))) 
 fb %>% dim()
+
+cat("Variables with more 80% of data: ", ncol(fb))
+
 fb %>% str()
 
 web_table(fb, caption = "Data with variables with more than 80% data")
@@ -79,10 +79,10 @@ smr <- fb %>%
   pivot_wider(names_from = stat, values_from = value) %>% 
   dplyr::select(!c(rowid))
   
-
 smr %>% kable()
-```
 
+smr |> write_sheet(ss = gs, sheet = "STable2")
+```
 
 ## RO 1
 
@@ -96,47 +96,150 @@ mv <- dtx %>%
   mutate(across(1:4, ~ as.factor(.))) %>% 
   PCA(X = ., scale.unit = T, graph = F, quali.sup = c(1:5))
 
+pcainfo <- factoextra::get_pca(mv); pcainfo
+
+pcainfo$cor %>% kable(caption = "Variable correlations")
+pcainfo$contrib %>% kable(caption = "Variable Contribution")
+pcainfo$cos2 %>% kable(caption = "Variable Cos2")
+
 var <- fviz_pca_var(mv, col.var = "cos2",
              gradient.cols = c("#7570b3", "#d95f02", "#e7298a", "#1b9e77", "#66a61e"), 
              repel = TRUE,
              labelsize = 2)
 
+var
+
 ind <- plot.PCA(mv, choix = c("ind")
-                , cex = 0.5
+                , cex = 0.8
                 , label = "ind"
                 , invisible = "quali"
-                )
+                , habillage = 1
+                )  +
+  theme(
+    legend.position = "bottom",       # leyenda abajo
+    legend.direction = "horizontal"   # en una sola línea
+  ) + guides(color = guide_legend(nrow = 1))
 
-plot <- list(var, ind) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = "auto") %>% 
-  ggsave(plot = ., "manuscript/PCA.jpg", units = "cm"
-                , width = 30, height = 15)
+ind
+
+cls <- HCPC(mv, graph = F)
+
+clsp <- \() {
+  
+  plot.HCPC(cls, choice = "map", nb.clust=-1, draw.tree = F)
+  
+}
+
+cos2p <- ~ {
+  
+pcainfo$cos2[, 1:2] %>% 
+  corrplot(
+    is.corr = F
+    , method = "number",
+    type = "full",
+    
+    # Texto
+    tl.col = "black",
+    tl.srt = 45,          # mejor legibilidad
+    tl.cex = 0.6,         # etiquetas más visibles
+    
+    # Números
+    number.cex = 0.5,     # mayor tamaño
+    number.digits = 1,    # control de precisión
+    
+    # Barra de color
+    cl.cex = 0.7,
+    cl.pos = "r",
+    cl.align = "r",
+    cl.ratio = 4        # evita que la barra comprima la figura
+  )
+
+}
+
+grid <- list(ind, clsp) %>% 
+  plot_grid(plotlist = ., ncol = 1) %>% 
+  plot_grid(., cos2p, ncol = 2, rel_widths = c(1.8, 1))
+
+grid
+
+plot <- grid %>% 
+  ggsave(plot = ., "manuscript/Figure-1.jpg", units = "cm"
+                , width = 25, height = 25)
 
 plot %>% include_graphics()
 
-pcainfo <- factoextra::get_pca(mv)
+cos2_selvar <- pcainfo$cos2[, 1:2] %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "variable") %>% 
+  filter(if_any(c(Dim.1, Dim.2), ~ . > 0.6))
 
-sink("files/pca.txt")
-cat("\nPrincipal Component Analysis Results\n")
-summary(mv, nbelements = Inf, nb.dec = 2)
-cat("\nCorrelations between variables and dimensions\n")
-mv$cor
-cat("\nContributions of the variables\n")
-mv$contrib
-sink()
+cos2_selvar %>% kable(caption = "Selected variables with Cos2 > 0.6")
 
-
+selvar <- cos2_selvar %>% 
+  dplyr::select(variable) %>% 
+  deframe()
 ```
 
 ## RO 2
 
-```{r}
+> Excluir varibles que covarian?
 
+```{r}
+dtsl <- fb %>% 
+  dplyr::select(1, group, {{selvar}})
+
+mv <- dtsl %>% 
+  column_to_rownames("race") %>% 
+  mutate(across(1, ~ as.factor(.))) %>% 
+  PCA(X = ., scale.unit = T, graph = F, quali.sup = c(1))
+
+pcainfo <- factoextra::get_pca(mv); pcainfo
+
+pcainfo$cor %>% kable(caption = "Variable correlations")
+pcainfo$contrib %>% kable(caption = "Variable Contribution")
+pcainfo$cos2 %>% kable(caption = "Variable Cos2")
+
+var <- fviz_pca_var(mv
+                    , repel = TRUE
+                    , labelsize = 2)
+
+var
+
+ind <- plot.PCA(mv, choix = c("ind")
+                , cex = 0.8
+                , label = "ind"
+                , invisible = "quali"
+                , habillage = 1
+                )  +
+  theme(
+    legend.position = "bottom",       # leyenda abajo
+    legend.direction = "horizontal"   # en una sola línea
+  ) + guides(color = guide_legend(nrow = 1))
+
+ind
+
+cls <- HCPC(mv, graph = F)
+
+clsp <- \() {
+  
+  plot.HCPC(cls, choice = "map", nb.clust=-1, draw.tree = F)
+  
+}
+
+grid <- list(var, clsp) %>% 
+  plot_grid(plotlist = ., ncol = 2)
+
+grid
+
+plot <- grid %>% 
+  ggsave(plot = ., "manuscript/Figure-2.jpg", units = "cm"
+                , width = 30, height = 15)
 ```
 
 ## RO 3
 
 ```{r}
+
 
 ```
 
