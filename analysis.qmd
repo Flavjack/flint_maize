@@ -164,14 +164,22 @@ grid
 
 plot <- grid %>% 
   ggsave(plot = ., "manuscript/Figure-1.jpg", units = "cm"
-                , width = 25, height = 25)
+                , width = 30, height = 30)
 
 plot %>% include_graphics()
+```
 
+## RO 2
+
+> Excluir varibles que covarian?
+
+```{r}
 cos2_selvar <- pcainfo$cos2[, 1:2] %>% 
   data.frame() %>% 
   rownames_to_column(var = "variable") %>% 
   filter(if_any(c(Dim.1, Dim.2), ~ . > 0.6))
+
+cos2_selvar %>% write_sheet(ss = gs, sheet = "Table1")
 
 cos2_selvar %>% kable(caption = "Selected variables with Cos2 > 0.6")
 
@@ -179,10 +187,6 @@ selvar <- cos2_selvar %>%
   dplyr::select(variable) %>% 
   deframe()
 ```
-
-## RO 2
-
-> Excluir varibles que covarian?
 
 ```{r}
 dtsl <- fb %>% 
@@ -201,7 +205,8 @@ pcainfo$cos2 %>% kable(caption = "Variable Cos2")
 
 var <- fviz_pca_var(mv
                     , repel = TRUE
-                    , labelsize = 2)
+                    , labelsize = 3
+                    )
 
 var
 
@@ -238,86 +243,62 @@ plot <- grid %>%
 
 ## RO 3
 
-```{r}
+Comparar con la clasificación de Grobman et al. 1961 (Table 8, Pag. 139):
 
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# PCA
+Grobman, Alexander; Wilfredo Salhuana, Ricardo Sevilla y Paul C. Mangelsdorf. 1961. Races of Maize in Peru: Their Origins, Evolution and Classification.
+(Publication 915). Washington, D.C.: National Academy of Sciences,
+National Research Council.
 
 ```{r}
-dtx <- fb
-
-# str(dtx)
-  
-mv <- PCA(X = dtx, scale.unit = T, graph = F)
-
-fviz_pca_var(mv, col.var = "cos2",
-             gradient.cols = c("#7570b3",  "#d95f02", "#e7298a", "#1b9e77", "#66a61e"), 
-             repel = TRUE
-             )
-
-var <- plot.PCA(mv, choix = c("var"), cex=0.7, )
-
 ind <- plot.PCA(mv, choix = c("ind")
-                , cex = 0.5
+                , cex = 0.8
                 , label = "ind"
                 , invisible = "quali"
-                )
+                , habillage = 1
+                )  +
+  theme(
+    legend.position = "bottom",       
+    legend.direction = "horizontal"  
+  ) + guides(color = guide_legend(nrow = 1))
 
-plot <- list(var, ind) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = "auto") %>% 
-  ggsave(plot = ., "manuscript/PCA.jpg", units = "cm"
-                , width = 30, height = 15)
 
-plot %>% include_graphics()
 
-pcainfo <- factoextra::get_pca(mv)
 
-sink("files/pca.txt")
-cat("\nPrincipal Component Analysis Results\n")
-summary(mv, nbelements = Inf, nb.dec = 2)
-cat("\nCorrelations between variables and dimensions\n")
-mv$cor
-cat("\nContributions of the variables\n")
-mv$contrib
-sink()
+ind
 
-cls <- HCPC(mv, graph = F
-            , nb.clust = -1
-            , metric = "euclidean"
-            , method = "ward"
+# Phylogenic
+phylo <- cls %>% 
+  fviz_dend(cex = 0.5
+            , k_colors = "jco"
+            , type = "circular"
+            , repel = TRUE
+            , phylo_layout = "layout.gem"
+            , lwd = 0.1
             )
 
-sink("files/hcpc.txt")
-cat("\nHierarchical Clustering on Principal Components\n")
-cls$call$t$tree
-cls$desc.ind
-cls$desc.var
-sink()
+# rectangle
+rect <- cls %>% 
+  fviz_dend(cex = 0.4
+            , rect = TRUE
+            , k_colors = "jco"
+            , rect_border = "jco"
+            , rect_fill = TRUE
+            , horiz = TRUE
+            , main = ""
+            , lwd = 0.01
+            )
 
-map <- \() {plot(cls, choice = "map", draw.tree = FALSE)}
-cir <- fviz_dend(cls, type = "circular", cex = 0.5)
+clsp <- \() {
+  
+  plot.HCPC(cls, choice = "tree", nb.clust=-1, draw.tree = F, cex = 0.4)
+  
+}
 
-plot <- list(map, cir) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = "auto") %>% 
-  ggsave(plot = ., "manuscript/HCPC.jpg", units = "cm"
-                , width = 30, height = 15)
+plot <- list(ind, clsp) %>% 
+  plot_grid(plotlist = ., nrow = 1, labels = "auto") %>% 
+  ggsave2("manuscript/Figure-3.jpg"
+          , plot = .
+          , width =40 , height = 20, units = "cm")
 
 plot %>% include_graphics()
 ```
