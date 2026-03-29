@@ -10,7 +10,7 @@ format:
     number-sections: true
     self-contained: true
     code-fold: true
-    output-file: "ESM"
+    output-file: "ESM_1"
 editor_options: 
   chunk_output_type: console
 execute: 
@@ -81,7 +81,7 @@ smr <- fb %>%
   
 smr %>% kable()
 
-smr |> write_sheet(ss = gs, sheet = "STable2")
+# smr |> write_sheet(ss = gs, sheet = "STable2")
 ```
 
 ## RO 1
@@ -157,8 +157,8 @@ pcainfo$cos2[, 1:2] %>%
 }
 
 grid <- list(ind, clsp) %>% 
-  plot_grid(plotlist = ., ncol = 1) %>% 
-  plot_grid(., cos2p, ncol = 2, rel_widths = c(1.8, 1))
+  plot_grid(plotlist = ., ncol = 1, labels = "auto") %>% 
+  plot_grid(., cos2p, ncol = 2, rel_widths = c(1.8, 1), labels = c("", "c"))
 
 grid
 
@@ -179,7 +179,7 @@ cos2_selvar <- pcainfo$cos2[, 1:2] %>%
   rownames_to_column(var = "variable") %>% 
   filter(if_any(c(Dim.1, Dim.2), ~ . > 0.6))
 
-cos2_selvar %>% write_sheet(ss = gs, sheet = "Table1")
+# cos2_selvar %>% write_sheet(ss = gs, sheet = "Table1")
 
 cos2_selvar %>% kable(caption = "Selected variables with Cos2 > 0.6")
 
@@ -232,7 +232,7 @@ clsp <- \() {
 }
 
 grid <- list(var, clsp) %>% 
-  plot_grid(plotlist = ., ncol = 2)
+  plot_grid(plotlist = ., ncol = 2, labels = "auto")
 
 grid
 
