@@ -26,6 +26,7 @@ execute:
 
 library(factoextra)
 library(corrplot)
+library(ape)
 source('https://inkaverse.com/setup.r')
 ```
 
@@ -215,12 +216,12 @@ cos_selected <- cos2 %>%
   dplyr::filter(value > 0.6) %>% 
   rename(cos2 = value)
     
-selection_table <- merge(contrib_selected, cos_selected) %>% 
+selection_table <- merge(contrib_selected, cos_selected) 
   
 
 selection_table %>% kable()
 
-selected_traits <- trait_cont %>% 
+selected_traits <- selection_table %>% 
   pluck(1) %>% 
   unique()
 
@@ -240,8 +241,8 @@ dtsl <- fb %>%
 
 mv <- dtsl %>% 
   column_to_rownames("race") %>% 
-  mutate(across(1:2, ~ as.factor(.))) %>% 
-  PCA(X = ., scale.unit = T, graph = F, quali.sup = c(1, 2))
+  mutate(across(group, ~ as.factor(.))) %>% 
+  PCA(X = ., scale.unit = T, graph = F, quali.sup = c(1))
 
 pcainfo <- factoextra::get_pca(mv); pcainfo
 
@@ -269,22 +270,30 @@ ind <- plot.PCA(mv, choix = c("ind")
 
 ind
 
-cls <- HCPC(mv, graph = F)
+cls <- HCPC(mv, graph = F, nb.clust = -1)
 
-clsp <- \() {
+cls$call$t$tree
+cls$data.clust # Cluster membership of each individual
+cls$desc.var$quanti # Quantitative variables characterizing each cluster
+cls$desc.var$category # Categorical variables significantly by cluster 
+table(cls$data.clust$clust) # Number of individuals assigned to each cluster
+
+clsp <- function() {
   
-  plot.HCPC(cls, choice = "map", nb.clust=-1, draw.tree = F)
+  plot.HCPC(cls, choice = "map", draw.tree = F)
   
 }
 
-grid <- c(var, clsp) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = "auto")
+grid <- plot_grid(plotlist = list(var, clsp)
+                  , ncol = 2, labels = "auto")
 
 grid
 
 plot <- grid %>% 
   ggsave(plot = ., "manuscript/Figure-2.jpg", units = "cm"
-                , width = 30, height = 15)
+                , width = 40, height = 20)
+
+plot %>% include_graphics()
 ```
 
 ## RO 3
@@ -296,7 +305,8 @@ Grobman, Alexander; Wilfredo Salhuana, Ricardo Sevilla y Paul C. Mangelsdorf. 19
 National Research Council.
 
 ```{r}
-ind <- plot.PCA(mv, choix = c("ind")
+ind <- plot.PCA(mv
+                , choix = c("ind")
                 , cex = 0.8
                 , label = "ind"
                 , invisible = "quali"
@@ -307,44 +317,37 @@ ind <- plot.PCA(mv, choix = c("ind")
     legend.direction = "horizontal"  
   ) + guides(color = guide_legend(nrow = 1))
 
-
-
-
 ind
 
-# Phylogenic
-phylo <- cls %>% 
-  fviz_dend(cex = 0.5
-            , k_colors = "jco"
-            , type = "circular"
-            , repel = TRUE
-            , phylo_layout = "layout.gem"
-            , lwd = 0.1
-            )
+hc <- cls$call$t$tree
+k <- length(unique(cls$data.clust$clust)) 
+clus <- cutree(hc, k)
 
-# rectangle
-rect <- cls %>% 
-  fviz_dend(cex = 0.4
-            , rect = TRUE
-            , k_colors = "jco"
-            , rect_border = "jco"
-            , rect_fill = TRUE
-            , horiz = TRUE
-            , main = ""
-            , lwd = 0.01
-            )
+colors <- c("salmon", "black", "forestgreen", "orange", "blue", "brown")
 
-clsp <- \() {
+clsp_fan <- function() {
   
-  plot.HCPC(cls, choice = "tree", nb.clust=-1, draw.tree = F, cex = 0.4)
+  plot(as.phylo(hc)
+     , type = "fan"
+     , tip.color = colors[clus]
+     , label.offset = 0.01
+     , cex = 0.5)
   
 }
 
-plot <- list(ind, clsp) %>% 
-  plot_grid(plotlist = ., nrow = 1, labels = "auto") %>% 
+clsp <- \() {
+  
+  plot.HCPC(cls, choice = "map", draw.tree = F) # tree?
+  
+}
+
+plot <- c(ind, clsp_fan) %>% 
+  plot_grid(plotlist = ., nrow = 1, labels = "auto"
+            , rel_widths = c(1, 1.2)) %>% 
   ggsave2("manuscript/Figure-3.jpg"
           , plot = .
-          , width =40 , height = 20, units = "cm")
+          , width =40 , height = 20
+          , units = "cm")
 
 plot %>% include_graphics()
 ```
