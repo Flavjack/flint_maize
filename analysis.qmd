@@ -273,10 +273,10 @@ ind
 cls <- HCPC(mv, graph = F, nb.clust = -1)
 
 cls$call$t$tree
-cls$data.clust # Cluster membership of each individual
-cls$desc.var$quanti # Quantitative variables characterizing each cluster
-cls$desc.var$category # Categorical variables significantly by cluster 
-table(cls$data.clust$clust) # Number of individuals assigned to each cluster
+cls$data.clust %>% kable(caption = "Cluster membership of each individual")  
+cls$desc.var$quanti %>% kable(caption = "Quantitative variables characterizing each cluster")
+cls$desc.var$category%>% kable(caption = "Categorical variables significantly by cluster")  
+table(cls$data.clust$clust) %>% kable(caption = "Number of individuals assigned to each cluster")
 
 clsp <- function() {
   
@@ -318,6 +318,21 @@ ind <- plot.PCA(mv
   ) + guides(color = guide_legend(nrow = 1))
 
 ind
+
+infoind <- mv %>% 
+  get_pca_ind()
+
+infoind$coord %>% kable(caption = "Coordinates for the individuals")
+infoind$cos2 %>% kable(caption = "Cos2 for the individuals")
+infoind$contrib %>% kable(caption = "contributions of the individuals")
+infoind$dist
+
+cls <- HCPC(mv, graph = F, nb.clust = 6) # k = 6
+
+cls$call$t
+cls$call$X %>% view()
+cls$desc.ind$dist
+cls$desc.ind$para
 
 hc <- cls$call$t$tree
 k <- length(unique(cls$data.clust$clust)) 
