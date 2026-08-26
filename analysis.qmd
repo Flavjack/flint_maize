@@ -115,7 +115,11 @@ p1 <- fviz_eig(mv,
   labs(
     title = "PCA - percentage of explained variances",
     y = "Variance (%)") +
-  theme_minimal()
+  theme_minimal()  +
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
 p1
 
@@ -129,7 +133,11 @@ p2 <- fviz_contrib(mv,
                    ) +
   ylim(0, 8) +
   labs(title = "Dim 1 - variables contribution", x = "") +
-  coord_flip()
+  coord_flip()  +
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
 p2
 
@@ -143,7 +151,11 @@ p3 <- fviz_contrib(mv,
                    ) +
   ylim(0, 8) +
   labs(title = "Dim 2 - variables contribution", x = "") +
-  coord_flip()
+  coord_flip()  +
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
 p3
 
@@ -159,7 +171,7 @@ pcainfo$cos2[, 1:2] %>%
     type = "full",
     tl.col = "black",
     tl.srt = 45,
-    tl.cex = 0.6, 
+    tl.cex = 0.9, 
     number.cex = 0.5, 
     number.digits = 1,
     cl.cex = 0.7,
@@ -176,7 +188,7 @@ grid <- c(panel_a, p4) %>%
 plot <- grid %>% 
   ggsave(plot = ., "manuscript/Figure-1.jpg"
          , units = "cm"
-         , width = 28, height = 40)
+         , width = 28, height = 36)
 
 plot %>% include_graphics()
 ```
@@ -252,13 +264,13 @@ pcainfo$cos2 %>% kable(caption = "Variable Cos2")
 
 var <- fviz_pca_var(mv
                     , repel = TRUE
-                    , labelsize = 3
+                    , labelsize = 4
                     )
 
 var
 
 ind <- plot.PCA(mv, choix = c("ind")
-                , cex = 0.8
+                , cex = 1.2
                 , label = "ind"
                 , invisible = "quali"
                 , habillage = 1
@@ -307,7 +319,7 @@ National Research Council.
 ```{r}
 ind <- plot.PCA(mv
                 , choix = c("ind")
-                , cex = 0.8
+                , cex = 0.9
                 , label = "ind"
                 , invisible = "quali"
                 , habillage = 1
@@ -330,7 +342,7 @@ infoind$dist
 cls <- HCPC(mv, graph = F, nb.clust = 6) # k = 6
 
 cls$call$t
-cls$call$X %>% view()
+cls$call$X 
 cls$desc.ind$dist
 cls$desc.ind$para
 
@@ -346,8 +358,7 @@ clsp_fan <- function() {
      , type = "fan"
      , tip.color = colors[clus]
      , label.offset = 0.01
-     , cex = 0.5)
-  
+     , cex = 0.8)
 }
 
 clsp <- \() {
@@ -361,7 +372,7 @@ plot <- c(ind, clsp_fan) %>%
             , rel_widths = c(1, 1.2)) %>% 
   ggsave2("manuscript/Figure-3.jpg"
           , plot = .
-          , width =40 , height = 20
+          , width =42 , height = 20
           , units = "cm")
 
 plot %>% include_graphics()
