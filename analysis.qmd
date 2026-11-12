@@ -36,30 +36,45 @@ source('https://inkaverse.com/setup.r')
 
 # Data import
 
-- Data morfológica curada de los maíces amiláceos Peruanos de Grobman et al (1961). 
+- Data morfológica curada de los maíces Peruanos de Grobman et al (1961), verificada contra las Tablas 2A–11A de la publicación (pestaña `fb`).
+
+- Definición de cada variable (nombre, unidad, método): pestaña `traits`.
 
 - Select variables with more than 80% of data.
+
+- Pericarp-cob colour classes (`pcc_*`) are frequencies where a dash in the publication was entered as 0, so all of them pass the 80% filter. Only `pcc_colorless_white` (the predominant class) is kept, as in the previous version of the analysis. `krn_irr` (binary flag) is also excluded.
+
+- Altitude (`alt_min`, `alt_max`) and pubescence score (`pbs`) are supplementary quantitative variables; racial group (`group`) and plant colour (`plc`) are supplementary qualitative variables.
 
 ```{r}
 url <- "https://docs.google.com/spreadsheets/d/1Us3b4buA-tXxltZd1kd970NttFA4k_apQvLdQ8BXXTw/edit?gid=37859623#gid=37859623"
 
-gs <- url %>% 
+gs <- url %>%
   as_sheets_id()
 
-rawdata <- gs %>% 
-  range_read("STable1")
+rawdata <- gs %>%
+  range_read("fb")
 rawdata %>% dim()
 rawdata %>% str()
 
-fb <- rawdata %>% 
-  dplyr::select(where(~ mean(!is.na(.x)) >= 0.8)) %>% 
-  rename_with(~ tolower(gsub(" ", "_", .x))) %>% 
-  rename_with(~ tolower(gsub("\\(|\\)", "", .x))) %>% 
-  mutate(across(1:plant_pubescence, ~ as.character(.))) %>% 
-  mutate(across(1:plant_pubescence, ~ as.factor(.))) 
+traits <- gs %>%
+  range_read("traits")
+
+quali_sup <- c("group", "plc")
+quanti_sup <- c("alt_min", "alt_max", "pbs")
+
+fb <- rawdata %>%
+  dplyr::select(where(~ mean(!is.na(.x)) >= 0.8)) %>%
+  dplyr::select(!c(krn_irr, starts_with("pcc_") & !pcc_colorless_white)) %>%
+  mutate(across(c(race, all_of(quali_sup)), ~ as.factor(.)))
 fb %>% dim()
 
-cat("Variables with more 80% of data: ", ncol(fb))
+active_traits <- fb %>%
+  dplyr::select(where(is.numeric), -all_of(quanti_sup)) %>%
+  names()
+
+cat("Variables with more 80% of data: ", ncol(fb), "\n")
+cat("Active quantitative traits: ", length(active_traits))
 
 fb %>% str()
 
@@ -69,8 +84,9 @@ web_table(fb, caption = "Data with variables with more than 80% data")
 # Summary data
 
 ```{r}
-smr <- fb %>% 
-  summarise(across(where(is.numeric), list(mean = ~ mean(x = ., na.rm = T)
+smr <- fb %>%
+  dplyr::select(all_of(active_traits)) %>%
+  summarise(across(everything(), list(mean = ~ mean(x = ., na.rm = T)
                                            , sd = ~ sd(x = ., na.rm = T)
                                            , min = ~ min(x = ., na.rm = T)
                                            , max = ~ max(x = ., na.rm = T)
@@ -79,12 +95,17 @@ smr <- fb %>%
   rowid_to_column() %>% 
   pivot_longer(!rowid) %>% 
   separate(name, c("trait", "stat"), sep = "_(?=[^_]+$)") %>% 
-  pivot_wider(names_from = stat, values_from = value) %>% 
+  pivot_wider(names_from = stat, values_from = value) %>%
   dplyr::select(!c(rowid))
-  
-smr %>% kable()
 
-# smr |> write_sheet(ss = gs, sheet = "STable2")
+stable2 <- traits %>%
+  dplyr::select(variable = abbreviation, Trait = trait, Category = category, Unit = unit) %>%
+  inner_join(smr, by = c("variable" = "trait")) %>%
+  dplyr::select(Category, Trait, Unit, variable, Mean = mean, SD = sd, Min = min, Max = max)
+
+stable2 %>% kable()
+
+# stable2 |> write_sheet(ss = gs, sheet = "STable2")
 ```
 
 # RO 1
@@ -93,11 +114,15 @@ smr %>% kable()
 dtx <- fb
 
 # str(dtx)
-  
-mv <- dtx %>% 
-  column_to_rownames("race") %>% 
-  mutate(across(1:4, ~ as.factor(.))) %>% 
-  PCA(X = ., scale.unit = T, graph = F, quali.sup = c(1:5), ncp = 10)
+
+mv <- dtx %>%
+  column_to_rownames("race") %>%
+  PCA(X = .
+      , scale.unit = T
+      , graph = F
+      , quali.sup = which(names(.) %in% quali_sup)
+      , quanti.sup = which(names(.) %in% quanti_sup)
+      , ncp = 10)
 
 pcainfo <- factoextra::get_pca(mv); pcainfo
 
@@ -212,7 +237,7 @@ cos2 <- pcainfo$cos2 %>%
 # 2. Selección inicial de variables
 # ============================================================
 
-n_traits <- 68
+n_traits <- length(active_traits)
 
 expected_contrib <- 100 / n_traits
 
@@ -237,10 +262,11 @@ selected_traits <- selection_table %>%
   pluck(1) %>% 
   unique()
 
-traits <- range_read(gs, "STable2x")
+table2 <- merge(selection_table, stable2, by = "variable") %>%
+  dplyr::select(Category, Trait, variable, Unit:Max, everything()) %>%
+  rename(Dimension = name)
 
-table2 <- merge(selection_table, traits) %>% 
-  dplyr::select(Trait, variable, Unit:Max, everything()) 
+table2 %>% kable()
 
 # table2 %>% range_write(gs, .,  "Table2")
 ```
