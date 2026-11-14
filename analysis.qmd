@@ -10,7 +10,7 @@ format:
     number-sections: true
     self-contained: true
     code-fold: true
-    output-file: "ESM_2"
+    output-file: "ESM_1"
 editor_options: 
   chunk_output_type: console
 execute: 
@@ -28,6 +28,43 @@ library(factoextra)
 library(corrplot)
 library(ape)
 source('https://inkaverse.com/setup.r')
+library(ggrepel)
+
+# ------------------------------------------------------------
+# Figure style: high-contrast, colour-blind-safe palette
+# Categorical hues in fixed order; colour is always paired with
+# shape (scatter) or labels, so identity never relies on colour alone.
+# ------------------------------------------------------------
+
+pal_cat <- c("#2a78d6", "#eb6834", "#1baf7a", "#c98500", "#d55181"
+             , "#008300", "#6250d6", "#e34948")
+pal_seq <- c("#eef4fc", "#9ec5f4", "#2a78d6")   # light -> mid blue (cos2, contrib)
+col_main <- "#2a78d6"   # single-series marks
+col_ref  <- "#e34948"   # reference lines
+ink      <- "#1f1f1e"   # text / axes
+shp      <- c(16, 17, 15, 18, 8, 4)               # one shape per class
+
+# tips below an internal node (ape-only helper)
+phangorn_desc <- \(phy, node) {
+  kids <- phy$edge[phy$edge[, 1] == node, 2]
+  unlist(lapply(kids, \(x) if (x <= Ntip(phy)) x else phangorn_desc(phy, x)))
+}
+
+group_lvl <- c("Primitive", "Ancient derived", "Late derived"
+               , "Introduced", "Incipient or imperfectly defined")
+
+theme_fig <- theme_minimal(base_size = 12) +
+  theme(
+    text = element_text(colour = ink)
+    , axis.text = element_text(size = 11, colour = ink)
+    , axis.title = element_text(size = 12)
+    , plot.title = element_text(size = 13, face = "bold")
+    , panel.grid.minor = element_blank()
+    , panel.grid.major = element_line(colour = "grey90", linewidth = 0.3)
+    , legend.position = "bottom"
+    , legend.title = element_blank()
+    , legend.text = element_text(size = 11)
+  )
 ```
 
 # Research Objective
@@ -36,37 +73,40 @@ source('https://inkaverse.com/setup.r')
 
 # Data import
 
-- Data morfológica curada de los maíces Peruanos de Grobman et al (1961), verificada contra las Tablas 2A–11A de la publicación (pestaña `fb`).
+- Curated morphological data of Peruvian maize races from Grobman et al. (1961), verified against Tables 2A–11A of the publication: sheet `STable2` (Supplementary Table 2).
 
-- Definición de cada variable (nombre, unidad, método): pestaña `traits`.
+- Definition of each variable (abbreviation, name, category, unit, method, source table): sheet `STable3` (Supplementary Table 3).
+
+- The descriptive statistics of the retained descriptors (Supplementary Table 4, sheet `STable4`) and Table 2 of the manuscript (sheet `Table2`) are generated below from these two sheets. Supplementary Table 1 (sheet `STable1`) is the correspondence with the map of maize races of Peru (MINAM, 2012).
 
 - Select variables with more than 80% of data.
 
-- Pericarp-cob colour classes (`pcc_*`) are frequencies where a dash in the publication was entered as 0, so all of them pass the 80% filter. Only `pcc_colorless_white` (the predominant class) is kept, as in the previous version of the analysis. `krn_irr` (binary flag) is also excluded.
+- Pericarp-cob colour classes (`pcc_*`) are frequencies where a dash in the publication was entered as 0, so all of them pass the 80% filter. They are colour-class frequencies rather than measured quantitative traits, so all of them are excluded from the active set. `krn_irr` (binary flag) is also excluded.
 
 - Altitude (`alt_min`, `alt_max`) and pubescence score (`pbs`) are supplementary quantitative variables; racial group (`group`) and plant colour (`plc`) are supplementary qualitative variables.
 
 ```{r}
-url <- "https://docs.google.com/spreadsheets/d/1Us3b4buA-tXxltZd1kd970NttFA4k_apQvLdQ8BXXTw/edit?gid=37859623#gid=37859623"
+url <- "https://docs.google.com/spreadsheets/d/1Us3b4buA-tXxltZd1kd970NttFA4k_apQvLdQ8BXXTw/edit?gid=1117930716#gid=1117930716"
 
 gs <- url %>%
   as_sheets_id()
 
 rawdata <- gs %>%
-  range_read("fb")
+  range_read("STable2")
 rawdata %>% dim()
 rawdata %>% str()
 
 traits <- gs %>%
-  range_read("traits")
+  range_read("STable3")
 
 quali_sup <- c("group", "plc")
 quanti_sup <- c("alt_min", "alt_max", "pbs")
 
 fb <- rawdata %>%
   dplyr::select(where(~ mean(!is.na(.x)) >= 0.8)) %>%
-  dplyr::select(!c(krn_irr, starts_with("pcc_") & !pcc_colorless_white)) %>%
-  mutate(across(c(race, all_of(quali_sup)), ~ as.factor(.)))
+  dplyr::select(!c(krn_irr, starts_with("pcc_"))) %>%
+  mutate(across(c(race, plc), ~ as.factor(.))
+         , group = factor(group, levels = group_lvl))
 fb %>% dim()
 
 active_traits <- fb %>%
@@ -79,6 +119,62 @@ cat("Active quantitative traits: ", length(active_traits))
 fb %>% str()
 
 web_table(fb, caption = "Data with variables with more than 80% data")
+```
+
+## Data completeness
+
+- Completeness of each quantitative descriptor across the 43 races and number of descriptors retained under alternative thresholds.
+
+- `PCA()` in FactoMineR does not drop races with missing values: each missing value is replaced by the mean of its variable, which after scaling equals zero, so it does not contribute to the principal components.
+
+```{r}
+#| label: completeness
+
+cand_traits <- rawdata %>%
+  dplyr::select(where(is.numeric)
+                , -any_of(c(quanti_sup, "krn_irr"))
+                , -starts_with("pcc_")) %>%
+  names()
+
+completeness <- rawdata %>%
+  dplyr::select(all_of(cand_traits)) %>%
+  summarise(across(everything(), ~ mean(!is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "completeness")
+
+cat("Candidate quantitative descriptors: ", nrow(completeness), "\n")
+
+completeness %>%
+  mutate(class = cut(completeness
+                     , breaks = c(-Inf, 0.2, 0.4, 0.6, 0.8, 0.99, 1)
+                     , labels = c("<20%", "20-40%", "40-60%", "60-80%"
+                                  , "80-99%", "100%"))) %>%
+  count(class) %>%
+  kable(caption = "Distribution of descriptor completeness")
+
+tibble(threshold = c(0.5, 0.6, 0.7, 0.8, 0.9, 1)) %>%
+  mutate(retained = map_int(threshold, ~ sum(completeness$completeness >= .x))) %>%
+  kable(caption = "Descriptors retained under alternative completeness thresholds")
+
+na_active <- fb %>%
+  column_to_rownames("race") %>%
+  dplyr::select(all_of(active_traits)) %>%
+  is.na()
+
+cat("Missing cells in the active matrix: ", sum(na_active), " of ", length(na_active)
+    , sprintf(" (%.2f%%)", 100 * mean(na_active)), "\n")
+cat("Descriptors with at least one missing value: ", sum(colSums(na_active) > 0), "\n")
+cat("Races with complete data for all active descriptors: "
+    , sum(rowSums(na_active) == 0), " of ", nrow(na_active), "\n")
+
+tibble(race = rownames(na_active), n_missing = rowSums(na_active)) %>%
+  dplyr::filter(n_missing > 0) %>%
+  arrange(desc(n_missing)) %>%
+  kable(caption = "Races with missing values in the active descriptors")
+
+tibble(variable = colnames(na_active), n_missing = colSums(na_active)) %>%
+  dplyr::filter(n_missing > 0) %>%
+  arrange(desc(n_missing)) %>%
+  kable(caption = "Active descriptors with missing values")
 ```
 
 # Summary data
@@ -98,14 +194,58 @@ smr <- fb %>%
   pivot_wider(names_from = stat, values_from = value) %>%
   dplyr::select(!c(rowid))
 
-stable2 <- traits %>%
-  dplyr::select(variable = abbreviation, Trait = trait, Category = category, Unit = unit) %>%
-  inner_join(smr, by = c("variable" = "trait")) %>%
-  dplyr::select(Category, Trait, Unit, variable, Mean = mean, SD = sd, Min = min, Max = max)
+# Table 1: racial group and altitudinal range (Grobman et al. 1961, Table 2A) and
+# altitudinal zones of the natural regions of Peru (Pulgar Vidal) spanned by the range.
+# Piricinco is an Amazonian race, so the eastern lowland regions are used.
 
-stable2 %>% kable()
+zones_west <- tibble(zone = c("Chala", "Yunga", "Quechua", "Suni", "Puna")
+                     , lower = c(0, 500, 2300, 3500, 4000)
+                     , upper = c(500, 2300, 3500, 4000, 4800))
+zones_east <- tibble(zone = c("Omagua", "Rupa-Rupa", "Yunga")
+                     , lower = c(0, 400, 1000)
+                     , upper = c(400, 1000, 2300))
 
-# stable2 |> write_sheet(ss = gs, sheet = "STable2")
+alt_zone <- \(amin, amax, race) {
+  if (is.na(amin) | is.na(amax)) return(NA_character_)
+  z <- if (race %in% c("Piricinco")) zones_east else zones_west
+  hit <- z$zone[amin < z$upper & amax > z$lower]
+  paste(unique(c(first(hit), last(hit))), collapse = "–")
+}
+
+group_names <- c("Primitive" = "Primitive", "Ancient derived" = "Anciently derived"
+                 , "Late derived" = "Lately derived", "Introduced" = "Introduced")
+
+table1 <- rawdata %>%
+  dplyr::select(race, group, alt_min, alt_max) %>%
+  mutate(Group = case_when(race == "Perlilla" ~ "Imperfectly defined"
+                           , group == "Incipient or imperfectly defined" ~ "Incipient"
+                           , TRUE ~ group_names[group])
+         , `Altitudinal zone` = pmap_chr(list(alt_min, alt_max, race), alt_zone)) %>%
+  dplyr::select(Group, Race = race, `Altitude min (m)` = alt_min
+                , `Altitude max (m)` = alt_max, `Altitudinal zone`)
+
+table1 %>% kable(caption = "Table 1")
+
+# table1 |> write_sheet(ss = gs, sheet = "Table1")
+
+# Supplementary Table 4: retained descriptors (variable names in the text are the
+# column names of the original digitization, without parentheses)
+
+text_name <- \(x) x %>% tolower() %>% gsub("_\\(", "_", .) %>% gsub("[()]", "", .) %>% gsub("_+", "_", .)
+
+stable4 <- traits %>%
+  dplyr::select(Abbreviation = abbreviation, Trait = trait, Category = category
+                , Unit = unit, stable1_column) %>%
+  inner_join(smr, by = c("Abbreviation" = "trait")) %>%
+  mutate(`Variable name in text` = text_name(stable1_column)
+         , `n (races)` = colSums(!is.na(fb[, Abbreviation]))
+         , across(c(mean, sd, min, max), ~ round(.x, 2))) %>%
+  dplyr::select(Category, Trait, Abbreviation, `Variable name in text`, Unit, `n (races)`
+                , Mean = mean, SD = sd, Min = min, Max = max)
+
+stable4 %>% kable(caption = "Supplementary Table 4")
+
+# stable4 |> write_sheet(ss = gs, sheet = "STable4")
 ```
 
 # RO 1
@@ -126,103 +266,86 @@ mv <- dtx %>%
 
 pcainfo <- factoextra::get_pca(mv); pcainfo
 
+mv$eig[1:10, ] %>% kable(digits = 2, caption = "Eigenvalues of the initial PCA (all active descriptors)")
+
 pcainfo$contrib %>% kable(caption = "Variable Contribution")
 pcainfo$cos2 %>% kable(caption = "Variable Cos2")
 pcainfo$cor %>% kable(caption = "Variable correlations")
 
-p1 <- fviz_eig(mv, 
-                addlabels=TRUE,
-                hjust = 0.05,
-                barfill="white",
-                barcolor ="darkblue",
-                linecolor ="red") + 
+cat("Range of contributions to Dim 1: ", round(range(pcainfo$contrib[, 1]), 2)
+    , "; Dim 2: ", round(range(pcainfo$contrib[, 2]), 2), "\n")
+
+p1 <- fviz_eig(mv
+               , addlabels = TRUE
+               , hjust = 0.05
+               , barfill = col_main
+               , barcolor = col_main
+               , linecolor = ink
+               , ggtheme = theme_fig) +
   ylim(0, 30) +
-  labs(
-    title = "PCA - percentage of explained variances",
-    y = "Variance (%)") +
-  theme_minimal()  +
-  theme(
-    axis.text.x = element_text(size = 12)
-    , axis.text.y = element_text(size = 12)
-  )
+  labs(title = "PCA - percentage of explained variances", y = "Variance (%)")
 
 p1
 
-p2 <- fviz_contrib(mv,
-                     choice = "var", 
-                     axes = 1, 
-                     top = 30,
-                     fill="white",
-                     color ="darkblue"
-                   , sort.val = "asc"
-                   ) +
-  ylim(0, 8) +
-  labs(title = "Dim 1 - variables contribution", x = "") +
-  coord_flip()  +
-  theme(
-    axis.text.x = element_text(size = 12)
-    , axis.text.y = element_text(size = 12)
-  )
+fig_contrib <- \(axis) {
+  fviz_contrib(mv
+               , choice = "var"
+               , axes = axis
+               , top = 30
+               , fill = col_main
+               , color = col_main
+               , sort.val = "asc"
+               , ggtheme = theme_fig) +
+    ylim(0, 8) +
+    labs(title = paste0("Dim ", axis, " - variables contribution"), x = "") +
+    coord_flip() +
+    theme(panel.grid.major.y = element_blank()
+          , axis.text.x = element_text(angle = 0, hjust = 0.5))
+}
 
-p2
+p2 <- fig_contrib(1); p2
+p3 <- fig_contrib(2); p3
 
-p3 <- fviz_contrib(mv,
-                     choice = "var", 
-                     axes = 2, 
-                     top = 30,
-                     fill="white",
-                     color ="darkblue"
-                   , sort.val = "asc"
-                   ) +
-  ylim(0, 8) +
-  labs(title = "Dim 2 - variables contribution", x = "") +
-  coord_flip()  +
-  theme(
-    axis.text.x = element_text(size = 12)
-    , axis.text.y = element_text(size = 12)
-  )
-
-p3
-
-panel_a <- c(p1, p2, p3) %>% 
+panel_a <- list(p1, p2, p3) %>% 
   plot_grid(plotlist = ., ncol = 1, labels = "auto", rel_heights = c(1, 1.2, 1.2))
   
 p4 <- \() {
   
-pcainfo$cos2[, 1:2] %>% 
-  corrplot(
-    is.corr = F
-    , method = "number",
-    type = "full",
-    tl.col = "black",
-    tl.srt = 45,
-    tl.cex = 0.9, 
-    number.cex = 0.5, 
-    number.digits = 1,
-    cl.cex = 0.7,
-    cl.pos = "r",
-    cl.align = "r",
-    cl.ratio = 4 
-  )
-
+  # figures use the variable abbreviations defined in Supplementary Table 3
+  pcainfo$cos2[, 1:2] %>% 
+    corrplot(
+      is.corr = FALSE
+      , method = "color"
+      , col = colorRampPalette(pal_seq)(100)
+      , col.lim = c(0, 1)
+      , addCoef.col = ink
+      , number.cex = 0.55
+      , number.digits = 1
+      , tl.col = ink
+      , tl.srt = 45
+      , tl.cex = 0.9
+      , cl.cex = 0.7
+      , cl.pos = "r"
+      , cl.ratio = 4
+      , addgrid.col = "white"
+    )
 }
 
-grid <- c(panel_a, p4) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = c("", "d"))
+grid <- list(panel_a, p4) %>% 
+  plot_grid(plotlist = ., ncol = 2, labels = c("", "d"), rel_widths = c(1, 0.45))
 
 plot <- grid %>% 
   ggsave(plot = ., "manuscript/Figure-1.jpg"
-         , units = "cm"
-         , width = 28, height = 36)
+         , units = "cm", width = 24, height = 36, dpi = 600, bg = "white", quality = 100)
 
 plot %>% include_graphics()
 ```
 
-# Descriptors with most to phenotypic differentiation
+# Descriptors contributing most to phenotypic differentiation
 
 ```{r}
 # ============================================================
-# 1. Datos de PCA
+# 1. PCA data
 # ============================================================
 
 contrib <- pcainfo$contrib %>%
@@ -234,7 +357,7 @@ cos2 <- pcainfo$cos2 %>%
   rownames_to_column("variable")
 
 # ============================================================
-# 2. Selección inicial de variables
+# 2. Initial variable selection
 # ============================================================
 
 n_traits <- length(active_traits)
@@ -258,17 +381,100 @@ selection_table <- merge(contrib_selected, cos_selected)
 
 selection_table %>% kable()
 
-selected_traits <- selection_table %>% 
-  pluck(1) %>% 
+selected_traits <- selection_table %>%
+  pluck(1) %>%
   unique()
 
-table2 <- merge(selection_table, stable2, by = "variable") %>%
-  dplyr::select(Category, Trait, variable, Unit:Max, everything()) %>%
-  rename(Dimension = name)
+cat("Selected descriptors: ", length(selected_traits), "\n")
+cat("Races with complete data for the selected descriptors: "
+    , sum(complete.cases(fb[, selected_traits])), " of ", nrow(fb), "\n")
 
-table2 %>% kable()
+table2 <- selection_table %>%
+  inner_join(stable4, by = c("variable" = "Abbreviation")) %>%
+  arrange(name, Category, variable) %>%
+  transmute(Category, variable = `Variable name in text`, Unit, Mean, SD, Min, Max
+            , Dimension = name
+            , Contribution = round(contribution, 2), Cos2 = round(cos2, 2))
 
-# table2 %>% range_write(gs, .,  "Table2")
+table2 %>% kable(caption = "Table 2")
+
+# table2 |> write_sheet(ss = gs, sheet = "Table2")
+```
+
+## Selection procedure and retention of the clustering structure
+
+- Step 1: descriptors whose contribution to Dim 1 or Dim 2 exceeds the expected uniform contribution (100 / number of descriptors).
+
+- Step 2: among them, descriptors with cos² > 0.60 on the same dimension.
+
+- No additional redundancy filter is applied; Pearson correlations among the selected descriptors are reported to document their redundancy.
+
+- Retention of the clustering structure: HCPC on the full PCA (all active descriptors) is compared with HCPC on the reduced PCA using the adjusted Rand index (ARI) for the same number of clusters, and the race configurations are compared with the RV coefficient.
+
+```{r}
+#| label: selection-check
+
+step1 <- contrib_selected %>% distinct(variable) %>% nrow()
+step2 <- cos_selected %>% distinct(variable) %>% nrow()
+
+cat("Step 1 - contribution above ", round(expected_contrib, 2), "% on Dim 1 or Dim 2: ", step1, "\n")
+cat("cos2 > 0.60 on Dim 1 or Dim 2 (any contribution): ", step2, "\n")
+cat("Step 2 - both criteria on the same dimension: ", length(selected_traits), "\n")
+
+contrib_selected %>%
+  left_join(cos2 %>% pivot_longer(!variable, values_to = "cos2")
+            , by = c("variable", "name")) %>%
+  arrange(name, desc(contribution)) %>%
+  mutate(selected = cos2 > 0.6) %>%
+  kable(digits = 3, caption = "Candidate descriptors (step 1) and cos2 on the same dimension")
+
+cor_sel <- fb %>%
+  dplyr::select(all_of(selected_traits)) %>%
+  cor(use = "pairwise.complete.obs")
+
+cor_sel %>% kable(digits = 2, caption = "Pearson correlations among the selected descriptors")
+
+cor_sel %>%
+  as.data.frame() %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(!var1, names_to = "var2", values_to = "r") %>%
+  dplyr::filter(var1 < var2, abs(r) >= 0.9) %>%
+  arrange(desc(abs(r))) %>%
+  kable(digits = 3, caption = "Pairs of selected descriptors with |r| >= 0.90")
+
+# Clustering structure: full vs reduced descriptor sets
+
+mv_full <- mv
+
+reduced_pca <- function(traits) {
+  fb %>%
+    column_to_rownames("race") %>%
+    dplyr::select(all_of(traits)) %>%
+    PCA(scale.unit = TRUE, graph = FALSE, ncp = length(traits))
+}
+
+hcpc_k <- \(pca, k) HCPC(pca, nb.clust = k, consol = FALSE, graph = FALSE)$data.clust[rownames(fb %>% column_to_rownames("race")), "clust"]
+
+sets <- list(selected = selected_traits)
+
+compare <- map_dfr(names(sets), \(s) {
+  red <- reduced_pca(sets[[s]])
+  map_dfr(2:6, \(k) tibble(
+    set = s
+    , n_traits = length(sets[[s]])
+    , k = k
+    , ARI = mclust::adjustedRandIndex(hcpc_k(mv_full, k), hcpc_k(red, k))
+    , RV_dim12 = coeffRV(mv_full$ind$coord[, 1:2], red$ind$coord[, 1:2])$rv
+    , var_dim12 = sum(red$eig[1:2, 2])
+  ))
+})
+
+compare %>% kable(digits = 3, caption = "Agreement between HCPC on all descriptors and on the selected descriptors")
+
+cat("Optimal number of clusters (HCPC, nb.clust = -1): full = "
+    , nlevels(HCPC(mv_full, nb.clust = -1, consol = FALSE, graph = FALSE)$data.clust$clust)
+    , "; selected = "
+    , nlevels(HCPC(reduced_pca(selected_traits), nb.clust = -1, consol = FALSE, graph = FALSE)$data.clust$clust), "\n")
 ```
 
 ## RO 2
@@ -289,26 +495,66 @@ pcainfo$contrib %>% kable(caption = "Variable Contribution")
 pcainfo$cos2 %>% kable(caption = "Variable Cos2")
 
 var <- fviz_pca_var(mv
+                    , col.var = "cos2"
+                    , gradient.cols = c(col_ref, col_main)
                     , repel = TRUE
                     , labelsize = 4
-                    )
+                    , ggtheme = theme_fig) +
+  labs(title = "Variables - PCA", colour = "cos2") +
+  theme(legend.position = "right", legend.title = element_text())
 
 var
 
-ind <- plot.PCA(mv, choix = c("ind")
-                , cex = 1.2
-                , label = "ind"
-                , invisible = "quali"
-                , habillage = 1
-                )  +
-  theme(
-    legend.position = "bottom",       # leyenda abajo
-    legend.direction = "horizontal"   # en una sola línea
-  ) + guides(color = guide_legend(nrow = 1))
+ind <- fviz_pca_ind(mv
+                    , geom.ind = c("point", "text")
+                    , habillage = "group"
+                    , palette = pal_cat
+                    , pointsize = 2.5
+                    , labelsize = 3.5
+                    , repel = TRUE
+                    , mean.point = FALSE
+                    , ggtheme = theme_fig) +
+  scale_shape_manual(values = shp) +
+  labs(title = "Individuals - PCA") +
+  theme(legend.position = "bottom") +
+  theme(legend.text = element_text(size = 10)) +
+  guides(colour = guide_legend(nrow = 1), shape = guide_legend(nrow = 1))
 
 ind
 
-cls <- HCPC(mv, graph = F, nb.clust = -1)
+cls <- HCPC(mv, graph = F, nb.clust = -1, consol = FALSE)
+
+# Validation of the number of clusters ------------------------------------
+
+coord_red <- mv$ind$coord
+d_red <- dist(coord_red)
+
+k_validation <- map_dfr(2:7, \(k) {
+  cl <- HCPC(mv, nb.clust = k, consol = FALSE, graph = FALSE)$data.clust[rownames(coord_red), "clust"]
+  tibble(k = k
+         , sizes = paste(table(cl), collapse = "/")
+         , min_size = min(table(cl))
+         , silhouette = mean(cluster::silhouette(as.integer(cl), d_red)[, "sil_width"])
+         , between_inertia_pct = 100 * (1 - sum(sapply(split(as.data.frame(coord_red), cl)
+                                                     , \(x) sum(scale(x, scale = FALSE)^2))) /
+                                          sum(scale(coord_red, scale = FALSE)^2)))
+})
+
+k_validation %>% kable(digits = 3, caption = "Validation of the number of clusters (HCPC on the reduced PCA)")
+
+tibble(k = 1:10, inertia_gain = cls$call$t$inert.gain[1:10]) %>%
+  kable(digits = 3, caption = "Inertia gain of the hierarchical tree")
+
+cat("Number of clusters suggested by HCPC (nb.clust = -1): ", nlevels(cls$data.clust$clust), "\n")
+
+mv$eig[1:5, ] %>% kable(digits = 2, caption = "Eigenvalues of the reduced PCA")
+
+coord_red[, 1:2] %>%
+  as.data.frame() %>%
+  mutate(clust = cls$data.clust[rownames(coord_red), "clust"]) %>%
+  group_by(clust) %>%
+  summarise(across(c(Dim.1, Dim.2), list(mean = mean, min = min, max = max))) %>%
+  kable(digits = 2, caption = "Position of each cluster on the first two dimensions of the reduced PCA")
 
 cls$call$t$tree
 cls$data.clust %>% kable(caption = "Cluster membership of each individual")  
@@ -316,45 +562,101 @@ cls$desc.var$quanti %>% kable(caption = "Quantitative variables characterizing e
 cls$desc.var$category%>% kable(caption = "Categorical variables significantly by cluster")  
 table(cls$data.clust$clust) %>% kable(caption = "Number of individuals assigned to each cluster")
 
-clsp <- function() {
-  
-  plot.HCPC(cls, choice = "map", draw.tree = F)
-  
+# Multiple-testing adjustment of the v-tests --------------------------------
+# All descriptor x cluster tests (proba = 1) adjusted with Benjamini-Hochberg (FDR)
+# and Holm across the whole family of tests.
+
+vt_all <- cls$data.clust %>%
+  dplyr::select(-group) %>%
+  catdes(num.var = which(names(.) == "clust"), proba = 1)
+
+vtest_adj <- vt_all$quanti %>%
+  imap_dfr(\(x, k) as.data.frame(x) %>% rownames_to_column("variable") %>% mutate(clust = k)) %>%
+  as_tibble() %>%
+  mutate(p_BH = p.adjust(p.value, "BH")
+         , p_Holm = p.adjust(p.value, "holm")) %>%
+  arrange(clust, desc(v.test))
+
+cat("Number of descriptor x cluster tests: ", nrow(vtest_adj), "\n")
+cat("Significant (p < 0.05) unadjusted / BH / Holm: "
+    , sum(vtest_adj$p.value < 0.05), " / ", sum(vtest_adj$p_BH < 0.05)
+    , " / ", sum(vtest_adj$p_Holm < 0.05), "\n")
+
+vtest_adj %>%
+  dplyr::select(clust, variable, v.test, `Mean in category`, `Overall mean`, p.value, p_BH, p_Holm) %>%
+  kable(digits = 4, caption = "v-tests of the selected descriptors by cluster with adjusted p-values")
+
+vt_group <- cls$data.clust %>%
+  dplyr::select(group, clust) %>%
+  catdes(num.var = 2, proba = 1)
+
+vt_group$category %>%
+  imap_dfr(\(x, k) as.data.frame(x) %>% rownames_to_column("category") %>% mutate(clust = k)) %>%
+  as_tibble() %>%
+  mutate(p_BH = p.adjust(p.value, "BH")
+         , p_Holm = p.adjust(p.value, "holm")) %>%
+  arrange(p.value) %>%
+  kable(digits = 4, caption = "Association between historical groups and clusters with adjusted p-values")
+
+fig_clust <- \(cls) {
+  fviz_cluster(cls
+               , palette = pal_cat
+               , repel = TRUE
+               , labelsize = 10
+               , pointsize = 2.5
+               , show.clust.cent = FALSE
+               , ellipse.type = "convex"
+               , ellipse.alpha = 0.12
+               , main = "Cluster map"
+               , ggtheme = theme_fig) +
+    scale_shape_manual(values = shp)
 }
 
-grid <- plot_grid(plotlist = list(var, clsp)
-                  , ncol = 2, labels = "auto")
+clsp <- fig_clust(cls)
+
+# key with the descriptor abbreviations shown in panel a (definitions from STable3)
+abbr_key <- \(res) {
+  ab <- rownames(res$var$coord)
+  key <- traits %>%
+    filter(abbreviation %in% ab) %>%
+    mutate(abbreviation = factor(abbreviation, levels = ab)) %>%
+    arrange(abbreviation) %>%
+    mutate(i = row_number() - 1
+           , col = i %/% ceiling(n() / 2)
+           , row = i %% ceiling(n() / 2)
+           , unit = ifelse(is.na(unit) | unit == "", "", paste0(" (", unit, ")")))
+  ggplot(key) +
+    geom_text(aes(x = col * 1, y = -row, label = abbreviation)
+              , hjust = 0, fontface = "bold", size = 3.8, colour = ink) +
+    geom_text(aes(x = col * 1 + 0.12, y = -row, label = paste0(trait, unit))
+              , hjust = 0, size = 3.8, colour = ink) +
+    scale_x_continuous(limits = c(-0.02, 2)) +
+    scale_y_continuous(limits = c(-max(key$row) - 0.5, 0.5)) +
+    theme_void()
+}
+
+var_key <- plot_grid(var, abbr_key(mv), ncol = 1, rel_heights = c(1, 0.2))
+
+grid <- plot_grid(plotlist = list(var_key, clsp), ncol = 2, labels = "auto")
 
 grid
 
 plot <- grid %>% 
   ggsave(plot = ., "manuscript/Figure-2.jpg", units = "cm"
-                , width = 40, height = 20)
+         , width = 40, height = 20, dpi = 600, bg = "white", quality = 100)
 
 plot %>% include_graphics()
 ```
 
 ## RO 3
 
-Comparar con la clasificación de Grobman et al. 1961 (Table 8, Pag. 139):
+Comparison with the classification of Grobman et al. 1961 (Table 8, p. 139):
 
 Grobman, Alexander; Wilfredo Salhuana, Ricardo Sevilla y Paul C. Mangelsdorf. 1961. Races of Maize in Peru: Their Origins, Evolution and Classification.
 (Publication 915). Washington, D.C.: National Academy of Sciences,
 National Research Council.
 
 ```{r}
-ind <- plot.PCA(mv
-                , choix = c("ind")
-                , cex = 0.9
-                , label = "ind"
-                , invisible = "quali"
-                , habillage = 1
-                )  +
-  theme(
-    legend.position = "bottom",       
-    legend.direction = "horizontal"  
-  ) + guides(color = guide_legend(nrow = 1))
-
 ind
 
 infoind <- mv %>% 
@@ -365,41 +667,97 @@ infoind$cos2 %>% kable(caption = "Cos2 for the individuals")
 infoind$contrib %>% kable(caption = "contributions of the individuals")
 infoind$dist
 
-cls <- HCPC(mv, graph = F, nb.clust = 6) # k = 6
+# Same validated HCPC solution as in RO 2 (Figure 2) is used here
 
-cls$call$t
-cls$call$X 
 cls$desc.ind$dist
 cls$desc.ind$para
 
-hc <- cls$call$t$tree
-k <- length(unique(cls$data.clust$clust)) 
-clus <- cutree(hc, k)
+cls$data.clust %>%
+  rownames_to_column("race") %>%
+  group_by(clust) %>%
+  summarise(n = n(), races = paste(sort(race), collapse = ", ")) %>%
+  kable(caption = "Races assigned to each cluster")
 
-colors <- c("salmon", "black", "forestgreen", "orange", "blue", "brown")
+table(cluster = cls$data.clust$clust, group = cls$data.clust$group) %>%
+  kable(caption = "Cluster membership by historical racial group")
+
+# Agreement between historical categories and phenotypic clusters ----------
+# Six historical categories as in Table 1 (Grobman et al. 1961): Perlilla is
+# the only "imperfectly defined" race; the other races of that level are incipient.
+
+hist6 <- cls$data.clust %>%
+  rownames_to_column("race") %>%
+  mutate(category = case_when(
+    race == "Perlilla" ~ "Imperfectly defined"
+    , group == "Incipient or imperfectly defined" ~ "Incipient"
+    , TRUE ~ as.character(group))
+    , category = factor(category, levels = c("Primitive", "Ancient derived", "Late derived"
+                                             , "Introduced", "Incipient", "Imperfectly defined")))
+
+ct <- table(category = hist6$category, cluster = hist6$clust)
+ct %>% kable(caption = "Contingency table: historical categories x phenotypic clusters")
+
+set.seed(2026)
+ari_obs <- mclust::adjustedRandIndex(hist6$category, hist6$clust)
+ari_perm <- replicate(9999, mclust::adjustedRandIndex(sample(hist6$category), hist6$clust))
+ari_p <- (sum(ari_perm >= ari_obs) + 1) / (length(ari_perm) + 1)
+
+fisher <- fisher.test(ct, simulate.p.value = TRUE, B = 1e5)
+chi <- suppressWarnings(chisq.test(ct))
+cramer_v <- sqrt(chi$statistic / (sum(ct) * (min(dim(ct)) - 1)))
+
+tibble(statistic = c("Adjusted Rand index (ARI)", "ARI permutation p-value (9,999 permutations)"
+                     , "Fisher exact test p-value (simulated, 1e5)", "Cramer's V")
+       , value = c(ari_obs, ari_p, fisher$p.value, unname(cramer_v))) %>%
+  kable(digits = 3, caption = "Agreement between the historical classification and the HCPC clusters")
+
+# Position of the historical categories on the reduced PCA
+
+hist6 %>%
+  left_join(as.data.frame(coord_red[, 1:2]) %>% rownames_to_column("race"), by = "race") %>%
+  group_by(category) %>%
+  summarise(n = n()
+            , across(c(Dim.1, Dim.2), list(mean = mean, min = min, max = max))
+            , races = paste(sprintf("%s (%.2f; %.2f)", race, Dim.1, Dim.2), collapse = ", ")) %>%
+  kable(digits = 2, caption = "Coordinates of the historical categories on the first two dimensions of the reduced PCA")
+
+hc <- cls$call$t$tree
+phy <- as.phylo(hc)
+
+# cluster of each tip taken from HCPC (same numbering/colours as Figure 2)
+clus <- cls$data.clust[phy$tip.label, "clust"] %>% as.integer()
+k <- max(clus)
+
+# colour each branch by the cluster of the tips below it (grey if mixed)
+edge_clus <- sapply(phy$edge[, 2], \(node) {
+  tips <- if (node <= Ntip(phy)) node else phangorn_desc(phy, node)
+  cl <- unique(clus[tips])
+  if (length(cl) == 1) cl else NA
+})
 
 clsp_fan <- function() {
   
-  plot(as.phylo(hc)
-     , type = "fan"
-     , tip.color = colors[clus]
-     , label.offset = 0.01
-     , cex = 0.8)
+  par(mar = c(5, 3, 6, 3), xpd = NA)
+  plot(phy
+       , type = "fan"
+       , edge.color = ifelse(is.na(edge_clus), "grey60", pal_cat[edge_clus])
+       , edge.width = 2
+       , tip.color = ink
+       , label.offset = 0.05
+       , cex = 0.8)
+  tiplabels(pch = 19, col = pal_cat[clus], cex = 1.1, offset = 0.02)
+  legend("bottom", inset = c(0, -0.155), horiz = TRUE, x.intersp = 0.6, text.width = NA
+         , legend = paste("Cluster", 1:k)
+         , col = pal_cat[1:k], pch = 19, lwd = 2, bty = "n", cex = 0.9)
 }
 
-clsp <- \() {
-  
-  plot.HCPC(cls, choice = "map", draw.tree = F) # tree?
-  
-}
-
-plot <- c(ind, clsp_fan) %>% 
+plot <- list(ind, clsp_fan) %>% 
   plot_grid(plotlist = ., nrow = 1, labels = "auto"
             , rel_widths = c(1, 1.2)) %>% 
   ggsave2("manuscript/Figure-3.jpg"
           , plot = .
-          , width =42 , height = 20
-          , units = "cm")
+          , width = 36, height = 20
+          , units = "cm", dpi = 600, bg = "white", quality = 100)
 
 plot %>% include_graphics()
 ```
